@@ -5,11 +5,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import * as mindcraft from './mindcraft.js';
 import { readFileSync } from 'fs';
+import { Chutes } from '../models/chutes.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Mindserver is:
 // - central hub for communication between all agent processes
-// - api to control from other languages and remote users 
+// - api to control from other languages and remote users
 // - host for webapp
 
 let io;
@@ -51,8 +53,10 @@ export function createMindServer(host_public = false, port = 8080) {
     io = new Server(server);
 
     // Serve static files
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
     app.use(express.static(path.join(__dirname, 'public')));
+
+    // Initialize Chutes AI
+    const chutes = new Chutes('Qwen/Qwen3-32B', 'https://api.chutes.ai');
 
     // Socket.io connection handling
     io.on('connection', (socket) => {
@@ -138,13 +142,14 @@ export function createMindServer(host_public = false, port = 8080) {
             }
         });
 
-        socket.on('chat-message', (agentName, json) => {
+        socket.on('chat-message', async (agentName, json) => {
             if (!agent_connections[agentName]) {
                 console.warn(`Agent ${agentName} tried to send a message but is not logged in`);
                 return;
             }
             console.log(`${curAgentName} sending message to ${agentName}: ${json.message}`);
-            agent_connections[agentName].socket.emit('chat-message', curAgentName, json);
+            const response = await chutes.sendRequest([{ role: 'user', content: json.message }], 'You are a helpful assistant.');
+            agent_connections[agentName].socket.emit('chat-message', curAgentName, { message: response });
         });
 
         socket.on('set-agent-settings', (agentName, settings) => {
@@ -193,20 +198,20 @@ export function createMindServer(host_public = false, port = 8080) {
                 console.log('Exiting MindServer');
                 process.exit(0);
             }, 2000);
-            
+
         });
 
-		socket.on('send-message', (agentName, data) => {
-			if (!agent_connections[agentName]) {
-				console.warn(`Agent ${agentName} not in game, cannot send message via MindServer.`);
-				return
-			}
-			try {
-				agent_connections[agentName].socket.emit('send-message', data)
-			} catch (error) {
-				console.error('Error: ', error);
-			}
-		});
+        socket.on('send-message', (agentName, data) => {
+            if (!agent_connections[agentName]) {
+                console.warn(`Agent ${agentName} not in game, cannot send message via MindServer.`);
+                return
+            }
+            try {
+                agent_connections[agentName].socket.emit('send-message', data)
+            } catch (error) {
+                console.error('Error: ', error);
+            }
+        });
 
         socket.on('bot-output', (agentName, message) => {
             io.emit('bot-output', agentName, message);
@@ -233,7 +238,7 @@ function agentsStatusUpdate(socket) {
     for (let agentName in agent_connections) {
         const conn = agent_connections[agentName];
         agents.push({
-            name: agentName, 
+            name: agentName,
             in_game: conn.in_game,
             viewerPort: conn.viewer_port,
             socket_connected: !!conn.socket
@@ -241,7 +246,6 @@ function agentsStatusUpdate(socket) {
     };
     socket.emit('agents-status', agents);
 }
-
 
 let listenerInterval = null;
 function addListener(listener_socket) {

@@ -1,6 +1,5 @@
 {
-    "name": "andy",
-
-    "model": "gpt-5-nano"
-
+    "name": "biruvena",
+    "api": "gemini",
+    "model": "gemini-2.5-flash"
 }

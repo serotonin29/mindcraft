@@ -4,17 +4,21 @@ import { HfInference } from "@huggingface/inference";
 
 export class HuggingFace {
   static prefix = 'huggingface';
-  constructor(model_name, url, params) {
-    // Remove 'huggingface/' prefix if present
-    this.model_name = model_name.replace('huggingface/', '');
+    constructor(model_name, url, params) {
+    // Safely handle undefined/null model_name and remove 'huggingface/' prefix if present
+    this.model_name = (model_name || '').replace('huggingface/', '');
     this.url = url;
     this.params = params;
 
-    if (this.url) {
-      console.warn("Hugging Face doesn't support custom urls!");
+    // prefer router.huggingface.co (api-inference.huggingface.co is deprecated)
+    const hfApiUrl = this.url || 'https://router.huggingface.co';
+    try {
+      this.huggingface = new HfInference(getKey('HUGGINGFACE_API_KEY'), { apiUrl: hfApiUrl });
+    } catch (err) {
+      // fallback to simple constructor if options not supported by installed SDK
+      this.huggingface = new HfInference(getKey('HUGGINGFACE_API_KEY'));
+      if (!this.url) console.warn('HfInference options not supported; using default endpoint.');
     }
-
-    this.huggingface = new HfInference(getKey('HUGGINGFACE_API_KEY'));
   }
 
   async sendRequest(turns, systemMessage) {
@@ -40,6 +44,7 @@ export class HuggingFace {
         for await (const chunk of this.huggingface.chatCompletionStream({
           model: model_name,
           messages: [{ role: "user", content: input }],
+          endpointUrl: this.url || 'https://router.huggingface.co',
           ...(this.params || {})
         })) {
           res += (chunk.choices[0]?.delta?.content || "");
